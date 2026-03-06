@@ -1,0 +1,30 @@
+# Data files (never commit raw or processed datasets)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Pipeline runtime state
+run_state.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Outputs (committed selectively via artifacts)
+outputs/figures/*.png
+outputs/figures/*.pdf
+outputs/tables/*.csv
+outputs/tables/*.tex
+outputs/manuscripts/*.pdf
+
+# OS
+.DS_Store
+Thumbs.db

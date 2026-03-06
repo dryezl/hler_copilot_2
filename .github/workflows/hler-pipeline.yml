@@ -1,0 +1,114 @@
+name: HLER Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Pipeline stage to run (or 'status' to check state)"
+        required: true
+        type: choice
+        options:
+          - status
+          - init
+          - run
+      gate:
+        description: "Gate name to approve (used with action=approve)"
+        required: false
+        type: string
+      gate_selection:
+        description: "Selection value for gate approval"
+        required: false
+        type: string
+      gate_approver:
+        description: "Name of the human approving the gate"
+        required: false
+        type: string
+
+jobs:
+  hler-pipeline:
+    runs-on: ubuntu-latest
+    name: HLER Pipeline (${{ github.event.inputs.stage }})
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Restore RunState artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: run-state
+          path: .
+        continue-on-error: true  # No state file on first run
+
+      - name: Run pipeline stage
+        env:
+          HLER_STAGE: ${{ github.event.inputs.stage }}
+          HLER_GATE: ${{ github.event.inputs.gate }}
+          HLER_GATE_SELECTION: ${{ github.event.inputs.gate_selection }}
+          HLER_GATE_APPROVER: ${{ github.event.inputs.gate_approver }}
+        run: |
+          case "$HLER_STAGE" in
+            init)
+              python agents/orchestrator.py --init
+              ;;
+            run)
+              if [ -n "$HLER_GATE" ]; then
+                python agents/orchestrator.py \
+                  --approve \
+                  --gate "$HLER_GATE"
+              fi
+              python agents/orchestrator.py --run
+              ;;
+            status)
+              python agents/orchestrator.py --status
+              ;;
+          esac
+
+      - name: Save RunState artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: run-state
+          path: run_state.json
+          overwrite: true
+
+      - name: Save pipeline outputs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-outputs
+          path: outputs/
+          if-no-files-found: ignore
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linting tools
+        run: pip install ruff
+
+      - name: Lint with ruff
+        run: ruff check agents/ config/ --select E,W,F

@@ -1,0 +1,124 @@
+# HLER Lab Pipeline Configuration
+# Human-in-the-Loop Economic Research Lab
+
+pipeline:
+  name: HLER Research Pipeline
+  version: "1.0"
+
+  stages:
+    - name: DATA_AUDIT
+      agent: DataAuditAgent
+      description: >
+        Audit all available datasets before question formulation.
+        Produces a dataset inventory report.
+      human_gate: null
+      outputs:
+        - type: report
+          path: outputs/data_audit_report.md
+
+    - name: QUESTIONING
+      agent: QuestionAgent
+      description: >
+        Generate candidate research questions based on the data audit.
+        Human PI selects the final question.
+      human_gate:
+        name: GATE_QUESTION_SELECTION
+        prompt: >
+          Please review the candidate research questions above and select one
+          to proceed with. Enter the number of your chosen question.
+        required: true
+      outputs:
+        - type: report
+          path: outputs/question_candidates.md
+
+    - name: DATA_COLLECTION
+      agent: DataAgent
+      description: >
+        Activate the relevant dataset for the selected research question.
+        Enforces dataset isolation (only one dataset active per run).
+      human_gate: null
+      outputs:
+        - type: dataset
+          path: data/processed/
+
+    - name: ANALYSIS
+      agent: EconometricsAgent
+      description: >
+        Produce summary statistics, regressions, and causal identification.
+        Human PI must approve the identification strategy.
+      human_gate:
+        name: GATE_IDENTIFICATION_APPROVAL
+        prompt: >
+          Please review the proposed causal identification strategy and
+          econometric model. Enter 'approve' to proceed or describe any changes.
+        required: true
+      outputs:
+        - type: table
+          path: outputs/tables/
+        - type: figure
+          path: outputs/figures/
+
+    - name: WRITING
+      agent: PaperAgent
+      description: >
+        Generate a structured manuscript draft using the working paper template.
+        Human PI must review the model specification before drafting.
+      human_gate:
+        name: GATE_MODEL_REVIEW
+        prompt: >
+          Please review the econometric model specification before the draft
+          is written. Confirm with 'proceed' or request revisions.
+        required: true
+      outputs:
+        - type: manuscript
+          path: outputs/manuscripts/
+
+    - name: REVIEW
+      agent: ReviewerAgent
+      description: >
+        Evaluate the draft for novelty, identification validity, clarity,
+        and policy relevance. Produces a structured review report.
+      human_gate: null
+      outputs:
+        - type: report
+          path: outputs/review_report.md
+
+    - name: FINAL_APPROVAL
+      agent: null
+      description: >
+        Human PI provides final sign-off for publication.
+        No agent action — this is a pure human gate.
+      human_gate:
+        name: GATE_PUBLICATION_APPROVAL
+        prompt: >
+          This is the final approval gate. Please review the complete manuscript
+          and reviewer report. Enter 'approve' to authorize publication or
+          'revise' to return to an earlier stage.
+        required: true
+      outputs: []
+
+data:
+  raw_dir: data/raw/
+  processed_dir: data/processed/
+  isolation: strict          # 'strict' = one dataset per run; 'permissive' = allow multiple
+  min_cell_size: 5           # Minimum cell size for reported statistics
+
+outputs:
+  figures_dir: outputs/figures/
+  tables_dir: outputs/tables/
+  manuscripts_dir: outputs/manuscripts/
+  figure_dpi: 300
+  figure_formats: [png, pdf]
+  table_formats: [tex, csv]
+
+working_papers:
+  series_name: Human-in-the-Loop Economic Research Working Papers
+  file_prefix: hler_wp_
+  number_padding: 3          # Zero-pad paper numbers to 3 digits
+
+research_scope:
+  - Labor Economics
+  - Health and Human Capital
+  - Agricultural and Development Economics
+  - Behavioral Economics
+  - Genoeconomics and Biological Heterogeneity
