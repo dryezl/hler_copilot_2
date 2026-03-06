@@ -141,28 +141,131 @@ The Lab engages with research in:
 
 ---
 
-## Getting Started | 快速开始
+## Quick Start | 快速开始
 
-### Prerequisites | 前置条件
+本节演示如何从零开始完成一次完整的 HLER 研究流程。  
+This section walks you through a complete research run from scratch.
+
+### Step 0 — Install dependencies | 安装依赖
 
 ```bash
+# Clone the repository (if you haven't already)
+git clone https://github.com/dryezl/hler_copilot_2.git
+cd hler_copilot_2
+
+# Install Python dependencies
 pip install -r requirements.txt
 ```
 
-### Running the Pipeline | 运行流程
+### Step 1 — Place your data | 准备数据
+
+Put your raw dataset file(s) in `data/raw/`. The pipeline will detect them automatically during the DATA_AUDIT stage.
+
+```
+data/
+└── raw/
+    └── labor_dataset.parquet   # example
+```
+
+> **Data isolation rule**: each run uses exactly one dataset. Raw files are never modified; all processing writes to `data/processed/`.
+
+### Step 2 — Initialize a new run | 初始化新的研究运行
 
 ```bash
-# Initialize a new research run
-python agents/orchestrator.py --init --config config/pipeline_config.yaml
+python agents/orchestrator.py --init
+```
 
-# Start the pipeline (will pause at human gates)
+This creates `run_state.json` (gitignored) and advances the pipeline to the `DATA_AUDIT` stage.
+
+### Step 3 — Run the DATA_AUDIT stage | 执行数据审计
+
+```bash
+python agents/orchestrator.py --run
+```
+
+The `DataAuditAgent` scans `data/raw/` and `data/processed/`, writes an inventory to `outputs/data_audit_report.md`, and advances to the `QUESTIONING` stage.
+
+### Step 4 — ⏸ GATE: select a research question | 人工选择研究问题
+
+Running `--run` now will print candidate questions and **pause** for your input:
+
+```bash
+python agents/orchestrator.py --run
+```
+
+Example prompt:
+
+```
+⏸  HUMAN GATE REQUIRED: GATE_QUESTION_SELECTION
+Please select a research question from the candidates above.
+  [1] What is the effect of education on wages using the available labor dataset?
+  [2] How does health status affect labor market participation?
+  ...
+
+Your input: 1
+Your name/identifier: Prof. Zhang
+Optional notes: Focus on urban workers aged 25–55
+```
+
+Alternatively, pre-approve in batch/CI mode:
+
+```bash
+python agents/orchestrator.py --approve --gate GATE_QUESTION_SELECTION
+# Then advance:
+python agents/orchestrator.py --run
+```
+
+### Step 5 — Run DATA_COLLECTION and ANALYSIS | 数据收集与计量分析
+
+```bash
+# DATA_COLLECTION (automatic — no gate)
 python agents/orchestrator.py --run
 
-# Approve a human gate and continue
-python agents/orchestrator.py --approve --gate QUESTIONING
+# ANALYSIS — will pause at GATE_IDENTIFICATION_APPROVAL
+python agents/orchestrator.py --run
+# Review the proposed identification strategy, then type 'approve'
+```
 
-# Check current RunState
+Results are written to `outputs/tables/` (`.csv` + `.tex`) and `outputs/figures/`.
+
+### Step 6 — ⏸ GATE: review the model, then draft the paper | 审核模型并撰写初稿
+
+```bash
+# WRITING — will pause at GATE_MODEL_REVIEW
+python agents/orchestrator.py --run
+# Enter 'proceed' to generate the manuscript draft
+```
+
+The draft is saved to `outputs/manuscripts/hler_wp_000_draft.md`.
+
+### Step 7 — Run REVIEW and approve publication | 评审与发表批准
+
+```bash
+# REVIEW (automatic — no gate)
+python agents/orchestrator.py --run
+
+# FINAL_APPROVAL — will pause for Human PI sign-off
+python agents/orchestrator.py --run
+# Enter 'approve' to finalize publication
+```
+
+### Step 8 — Check status at any time | 随时查看流程状态
+
+```bash
 python agents/orchestrator.py --status
+```
+
+```
+==================================================
+  HLER Pipeline Status
+==================================================
+  Run ID   : a1b2c3d4-...
+  Stage    : WRITING
+  Dataset  : labor_dataset
+  Question : What is the effect of education on wages...
+  Gates    : ['GATE_QUESTION_SELECTION', 'GATE_IDENTIFICATION_APPROVAL']
+  Artifacts: ['data_audit_report', 'summary_statistics_csv', ...]
+==================================================
 ```
 
 ---
@@ -177,6 +280,117 @@ The pipeline pauses at the following gates awaiting explicit human approval:
 4. **GATE_PUBLICATION_APPROVAL** — Human PI provides final sign-off for publication
 
 > ⚠️ These gates cannot be bypassed. They are the defining feature of the HLER framework.
+
+---
+
+## Changing Research Domain | 更换研究领域指南
+
+HLER 支持多个研究领域。本节说明如何将流程切换到新的研究方向。  
+HLER supports multiple research domains. This guide explains how to adapt the pipeline to a new field.
+
+---
+
+### Option A — Start a fresh run in a different domain | 方案A：在新领域开始全新运行
+
+The simplest approach: place new data in `data/raw/`, then restart the pipeline. Each run is fully isolated via its own `run_state.json`.
+
+```bash
+# 1. Add your new-domain dataset
+cp /path/to/health_survey.parquet data/raw/health_dataset.parquet
+
+# 2. Delete (or rename) the previous run state
+rm run_state.json        # or: mv run_state.json run_state_labor_001.json
+
+# 3. Initialize a fresh run
+python agents/orchestrator.py --init
+
+# 4. Continue as normal — the QuestionAgent will now propose
+#    questions appropriate to the new data
+python agents/orchestrator.py --run
+```
+
+---
+
+### Option B — Add a new domain to the pipeline config | 方案B：在配置文件中注册新领域
+
+Edit `config/pipeline_config.yaml` to add your domain to the `research_scope` list:
+
+```yaml
+# config/pipeline_config.yaml
+research_scope:
+  - Labor Economics
+  - Health and Human Capital
+  - Agricultural and Development Economics
+  - Behavioral Economics
+  - Genoeconomics and Biological Heterogeneity
+  - Public Finance and Taxation        # ← add new domain here
+  - Urban and Regional Economics       # ← another example
+```
+
+This list is read by `QuestionAgent` to scope the candidate questions it generates.
+
+---
+
+### Option C — Customize domain-specific questions | 方案C：自定义研究问题候选列表
+
+To hard-code domain-specific candidate questions for your field, edit the `_generate_candidates` method in `agents/question_agent.py`:
+
+```python
+# agents/question_agent.py  (inside QuestionAgent)
+def _generate_candidates(self, state: RunState) -> list[str]:
+    """
+    Return domain-specific candidate research questions.
+    Customize this list for your research field.
+    """
+    return [
+        # === Public Finance examples ===
+        "What is the effect of marginal tax rates on labor supply at the extensive margin?",
+        "How does the Earned Income Tax Credit affect maternal employment?",
+        "Do property tax increases reduce residential investment?",
+        # === add your own questions below ===
+    ]
+```
+
+After editing, the next `QUESTIONING` stage will display your custom questions at the `GATE_QUESTION_SELECTION` pause.
+
+---
+
+### Option D — Add a new dataset mapping | 方案D：添加新的数据集映射
+
+`DataAgent` infers the dataset from the research question by keyword matching. To support a new domain dataset, add a branch in `agents/data_agent.py`:
+
+```python
+# agents/data_agent.py  (inside DataAgent._select_dataset)
+def _select_dataset(self, state: RunState) -> str:
+    question = (state.research_question or "").lower()
+
+    # Existing mappings
+    if "wage" in question or "labor" in question:
+        return "labor_dataset"
+    if "health" in question or "medical" in question:
+        return "health_dataset"
+
+    # ← Add your new domain here
+    if "tax" in question or "fiscal" in question or "revenue" in question:
+        return "public_finance_dataset"
+
+    return "general_dataset"
+```
+
+Place the corresponding file at `data/raw/public_finance_dataset.parquet` (or `.csv`).
+
+---
+
+### Copilot tip | Copilot 提示
+
+When using GitHub Copilot to extend the pipeline for a new domain, open `agents/question_agent.py` and type a comment describing your domain. Copilot will follow the HLER conventions in `.github/copilot-instructions.md` and suggest domain-appropriate questions and dataset mappings automatically.
+
+```python
+# Generate candidate research questions for Urban Economics research
+# covering housing markets, commuting patterns, and agglomeration effects
+def _generate_candidates(self, state: RunState) -> list[str]:
+    ...  # Copilot will complete this
+```
 
 ---
 
